@@ -5531,7 +5531,7 @@ namespace ts {
          */
         function getLateBoundNameFromType(type: LiteralType | UniqueESSymbolType) {
             if (type.flags & TypeFlags.UniqueESSymbol) {
-                return `__@${type.symbol.escapedName}@${getSymbolId(type.symbol)}` as __String;
+                return '__@' + type.symbol.escapedName + '@' + getSymbolId(type.symbol) as __String;
             }
             if (type.flags & TypeFlags.StringOrNumberLiteral) {
                 return escapeLeadingUnderscores("" + (<LiteralType>type).value);
@@ -16104,8 +16104,14 @@ namespace ts {
 
             // If a spread argument is present, check that it corresponds to a rest parameter or at least that it's in the valid range.
             if (spreadArgIndex >= 0) {
-                return isRestParameterIndex(signature, spreadArgIndex) ||
-                    signature.minArgumentCount <= spreadArgIndex && spreadArgIndex < signature.parameters.length;
+                if (isRestParameterIndex(signature, spreadArgIndex) ||
+                    signature.minArgumentCount <= spreadArgIndex && spreadArgIndex < signature.parameters.length) {
+                    return true;
+                }
+
+                const spread = getEffectiveArgument(node, args, spreadArgIndex) as SpreadElement;
+                const length = spread && lengthOfSpread(spread.expression)
+                return length && length >= signature.parameters.length - spreadArgIndex;
             }
 
             // Too many arguments implies incorrect arity.
@@ -16318,11 +16324,14 @@ namespace ts {
             }
             const headMessage = Diagnostics.Argument_of_type_0_is_not_assignable_to_parameter_of_type_1;
             const argCount = getEffectiveArgumentCount(node, args, signature);
-            for (let i = 0; i < argCount; i++) {
+            const spreadArgIndex = getSpreadArgumentIndex(args);
+            for (let i = 0; i < Math.min(argCount, spreadArgIndex); i++) {
                 const arg = getEffectiveArgument(node, args, i);
                 // If the effective argument is 'undefined', then it is an argument that is present but is synthetic.
                 if (arg === undefined || arg.kind !== SyntaxKind.OmittedExpression) {
-                    // Check spread elements against rest type (from arity check we know spread argument corresponds to a rest parameter)
+                    // Check spread elements against rest type
+                    // TODO: NOW WRONG -- (from the arity check we know a spread argument corresponds to a rest parameter)
+                    // (and it has been wrong for some time, so maybe it's only worked because of changes in getTypeAtPosition?)
                     const paramType = getTypeAtPosition(signature, i);
                     // If the effective argument type is undefined, there is no synthetic type for the argument.
                     // In that case, we should check the argument.
@@ -16336,6 +16345,15 @@ namespace ts {
                     const errorNode = reportErrors ? getEffectiveArgumentErrorNode(node, i, arg) : undefined;
                     if (!checkTypeRelatedTo(checkArgType, paramType, relation, errorNode, headMessage)) {
                         return false;
+                    }
+                }
+            }
+            // TODO: It would be better to integrate this with the main loop via alterations to getEffectiveArgument[Count] I think
+            if (spreadArgIndex) {
+                const spread = getEffectiveArgument(node, args, spreadArgIndex) as SpreadElement;
+                const length = spread && lengthOfSpread(spread.expression);
+                if (length) {
+                    for (let i = Math.min(argCount, spreadArgIndex); i < Math.min(argCount, length); i++) {
                     }
                 }
             }
@@ -16442,8 +16460,24 @@ namespace ts {
                 }
             }
             else {
+                const spreadIndex = getSpreadArgumentIndex(args);
+                if (spreadIndex > -1) {
+                    // :(
+                    return args.length - 1 + lengthOfSpread((args[spreadIndex] as SpreadElement).expression);
+                }
                 return args.length;
             }
+        }
+
+        function lengthOfSpread(spread: Expression) {
+            const t = checkExpression(spread);
+            if (isTupleLikeType(t)) {
+                const length = getTypeOfPropertyOfType(t, "length" as __String);
+                if (length.flags & TypeFlags.NumberLiteral) {
+                    return (length as NumberLiteralType).value;
+                }
+            }
+            return 0;
         }
 
         /**
