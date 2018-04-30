@@ -1025,13 +1025,17 @@ namespace ts.Completions {
             const isRhsOfImportDeclaration = isInRightSideOfInternalImportEqualsDeclaration(node);
             const allowTypeOrValue = isRhsOfImportDeclaration || (!isTypeLocation && isPossiblyTypeArgumentPosition(contextToken, sourceFile));
             if (isEntityName(node) || isImportType) {
+                const symbolAtLocationStart = timestamp();
                 let symbol = typeChecker.getSymbolAtLocation(node);
+                log("getCompletionData: SymbolAtLocation work: " + (timestamp() - symbolAtLocationStart));
                 if (symbol) {
                     symbol = skipAlias(symbol, typeChecker);
 
                     if (symbol.flags & (SymbolFlags.Module | SymbolFlags.Enum)) {
+                        const exportedSymbolsStart = timestamp();
                         // Extract module or enum members
                         const exportedSymbols = Debug.assertEachDefined(typeChecker.getExportsOfModule(symbol), "getExportsOfModule() should all be defined");
+                        log("getCompletionData: exportedSymbols work: " + (timestamp() - exportedSymbolsStart));
                         const isValidValueAccess = (symbol: Symbol) => typeChecker.isValidPropertyAccess(isImportType ? <ImportTypeNode>node : <PropertyAccessExpression>(node.parent), symbol.name);
                         const isValidTypeAccess = (symbol: Symbol) => symbolCanBeReferencedAtTypeLocation(symbol);
                         const isValidAccess = allowTypeOrValue ?
@@ -1046,20 +1050,29 @@ namespace ts.Completions {
 
                         // If the module is merged with a value, we must get the type of the class and add its propertes (for inherited static methods).
                         if (!isTypeLocation && symbol.declarations.some(d => d.kind !== SyntaxKind.SourceFile && d.kind !== SyntaxKind.ModuleDeclaration && d.kind !== SyntaxKind.EnumDeclaration)) {
-                            addTypeProperties(typeChecker.getTypeOfSymbolAtLocation(symbol, node));
+                            const typeStart = timestamp();
+                            const type = typeChecker.getTypeOfSymbolAtLocation(symbol, node);
+                            log("getCompletionData: getTypeOfSymbolAtLocation work: " + (timestamp() - typeStart));
+                            addTypeProperties(type);
                         }
 
                         return;
                     }
                 }
+
             }
 
             if (!isTypeLocation) {
-                addTypeProperties(typeChecker.getTypeAtLocation(node));
+                const typeStart = timestamp();
+                const type = typeChecker.getTypeAtLocation(node);
+                log("getCompletionData: getTypeAtLocation work: " + (timestamp() - typeStart));
+
+                addTypeProperties(type);
             }
         }
 
         function addTypeProperties(type: Type): void {
+            const typePropertiesStart = timestamp();
             isNewIdentifierLocation = hasIndexSignature(type);
 
             if (isSourceFileJavaScript(sourceFile)) {
@@ -1071,12 +1084,35 @@ namespace ts.Completions {
                 symbols.push(...getPropertiesForCompletion(type, typeChecker, /*isForAccess*/ true));
             }
             else {
-                for (const symbol of type.getApparentProperties()) {
-                    if (typeChecker.isValidPropertyAccessForCompletions(node.kind === SyntaxKind.ImportType ? <ImportTypeNode>node : <PropertyAccessExpression>node.parent, type, symbol)) {
+                let typePropertiesStart = timestamp();
+                const props = type.getApparentProperties();
+                log("getCompletionData: getApparentProperties work: " + (timestamp() - typePropertiesStart) + " PropsCount: " + props.length);
+                type isValidAccessDetailTime = { name: string; time: number; }[];
+                const times: { name: string; isValid: boolean; isValidTime: number; addSymbolTime: number; isValidAccessDetail: isValidAccessDetailTime }[] = [];
+                for (const symbol of props) {
+                    const time1 = timestamp();
+                    const timeCheck: { name: string; time: number; }[] = symbol.name === "conforms" || symbol.name === "flow" || symbol.name === "flowRight" ? [] : undefined;
+                    const val = typeChecker.isValidPropertyAccessForCompletions(node.kind === SyntaxKind.ImportType ? <ImportTypeNode>node : <PropertyAccessExpression>node.parent, type, symbol, timeCheck);
+                    const time2 = timestamp();
+                    if (val) {
                         addPropertySymbol(symbol);
                     }
+                    const time3 = timestamp();
+                    times.push({ name: symbol.name, isValid: val, isValidTime: time2 - time1, addSymbolTime: time3 - time2, isValidAccessDetail: timeCheck });
                 }
+                log(`getCompletionData: IsValidTime: ${sum(times, "isValidTime")} addPropertySymbolTime: ${sum(times, "addSymbolTime")}`);
+                times.forEach(t => {
+                    if (t.isValidAccessDetail) {
+                        t.isValidAccessDetail.forEach(v => {
+                            log(`getCompletionData:: ${t.name} ${v.name} :: ${v.time}`);
+                        });
+                        delete t.isValidAccessDetail;
+                    }
+                });
+                log(`getCompletionData: IsValidTime, addPropertySymbolTime JSON:: \n ${JSON.stringify(times)}\n`)
+
             }
+            log("getCompletionData: addTypeProperties work: " + (timestamp() - typePropertiesStart));
         }
 
         function addPropertySymbol(symbol: Symbol) {

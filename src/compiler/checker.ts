@@ -212,9 +212,9 @@ namespace ts {
                 node = getParseTreeNode(node, isPropertyAccessOrQualifiedNameOrImportTypeNode);
                 return !!node && isValidPropertyAccess(node, escapeLeadingUnderscores(propertyName));
             },
-            isValidPropertyAccessForCompletions: (node, type, property) => {
+            isValidPropertyAccessForCompletions: (node, type, property, timeChecks) => {
                 node = getParseTreeNode(node, isPropertyAccessExpression);
-                return !!node && isValidPropertyAccessForCompletions(node, type, property);
+                return !!node && isValidPropertyAccessForCompletions(node, type, property, timeChecks);
             },
             getSignatureFromDeclaration: declaration => {
                 declaration = getParseTreeNode(declaration, isFunctionLike);
@@ -17040,18 +17040,44 @@ namespace ts {
             }
         }
 
-        function isValidPropertyAccessForCompletions(node: PropertyAccessExpression | ImportTypeNode, type: Type, property: Symbol): boolean {
-            return isValidPropertyAccessWithType(node, node.kind === SyntaxKind.ImportType ? node : node.expression, property.escapedName, type)
-                && (!(property.flags & SymbolFlags.Method) || isValidMethodAccess(property, type));
+        function isValidPropertyAccessForCompletions(node: PropertyAccessExpression | ImportTypeNode, type: Type, property: Symbol, timechecks?: { name: string; time: number; }[]): boolean {
+            return isValidPropertyAccessWithType(node, node.kind === SyntaxKind.ImportType ? node : node.expression, property.escapedName, type, timechecks)
+                && (!(property.flags & SymbolFlags.Method) || isValidMethodAccess(property, type, timechecks));
         }
-        function isValidMethodAccess(method: Symbol, actualThisType: Type): boolean {
+        function isValidMethodAccess(method: Symbol, actualThisType: Type, timechecks?: { name: string; time: number; }[]): boolean {
+        const timestamp1 = timestamp();
             const propType = getTypeOfFuncClassEnumModule(method);
+            const timestamp2 = timestamp();
             const signatures = getSignaturesOfType(getNonNullableType(propType), SignatureKind.Call);
+            const timestamp3 = timestamp();
             Debug.assert(signatures.length !== 0);
-            return signatures.some(sig => {
+            const times: { signatureThisType: boolean; getThisTypeOfSignature: number; isTypeAssignableTo: number; }[] = timechecks ? [] : [];
+            const result = signatures.some(sig => {
+                const time1 = timestamp();
                 const signatureThisType = getThisTypeOfSignature(sig);
-                return !signatureThisType || isTypeAssignableTo(actualThisType, getInstantiatedSignatureThisType(sig, signatureThisType, actualThisType));
+                const time2 = timestamp();
+                const value =  !signatureThisType || isTypeAssignableTo(actualThisType, getInstantiatedSignatureThisType(sig, signatureThisType, actualThisType));
+                const time3 = timestamp();
+                if (timechecks) {
+                    const value: { signatureThisType: boolean; getThisTypeOfSignature: number; isTypeAssignableTo: number; } = {
+                        signatureThisType: !!signatureThisType,
+
+                        getThisTypeOfSignature: time2 - time1,
+                        isTypeAssignableTo: time3 - time2
+                    };
+                    times.push(value);
+                }
+                return value;
             });
+            if (timechecks) {
+                timechecks.push({ name: "isValidMethodAccess::getTypeOfFuncClassEnumModule", time: timestamp2 - timestamp1 });
+                timechecks.push({ name: "isValidMethodAccess::getSignaturesOfType", time: timestamp3 - timestamp2 });
+                timechecks.push({ name: "isValidMethodAccess:: getThisTypeOfSignature", time: sum(times, "getThisTypeOfSignature")});
+                timechecks.push({ name: "isValidMethodAccess:: isTypeAssignableTo", time: sum(times, "isTypeAssignableTo") });
+                    timechecks.push({ name: `isValidMethodAccess::${JSON.stringify(times)}`, time: 0 });
+            }
+
+            return result;
         }
         function getInstantiatedSignatureThisType(sig: Signature, signatureThisType: Type, actualThisType: Type): Type {
             if (!sig.typeParameters) {
@@ -17066,15 +17092,24 @@ namespace ts {
             node: PropertyAccessExpression | QualifiedName | ImportTypeNode,
             left: LeftHandSideExpression | QualifiedName | ImportTypeNode,
             propertyName: __String,
-            type: Type): boolean {
+            type: Type,
+            timechecks?: { name: string; time: number; }[]): boolean {
 
             if (type === unknownType || isTypeAny(type)) {
                 return true;
             }
+            const time1 = timestamp();
             const prop = getPropertyOfType(type, propertyName);
-            return prop ? checkPropertyAccessibility(node, left, type, prop)
+            const time2 = timestamp();
+            const result =  prop ? checkPropertyAccessibility(node, left, type, prop)
                 // In js files properties of unions are allowed in completion
                 : isInJavaScriptFile(node) && (type.flags & TypeFlags.Union) && (<UnionType>type).types.some(elementType => isValidPropertyAccessWithType(node, left, propertyName, elementType));
+            const time3 = timestamp();
+            if (timechecks) {
+                timechecks.push({ name: "isValidPropertyAccessWithType::getPropertyOfType", time: time2-time1});
+                timechecks.push({ name: "isValidPropertyAccessWithType::checkPropertyAccessibility", time: time3 - time2 });
+            }
+            return result;
         }
 
         /**
