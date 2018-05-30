@@ -1101,11 +1101,11 @@ namespace ts.Completions {
                 let typePropertiesStart = timestamp();
                 const props = type.getApparentProperties();
                 log("getCompletionData: getApparentProperties work: " + (timestamp() - typePropertiesStart) + " PropsCount: " + props.length);
-                type isValidAccessDetailTime = { name: string; time: number; }[];
+                type isValidAccessDetailTime = { name: string; time: number; }[] | undefined;
                 const times: { name: string; isValid: boolean; isValidTime: number; addSymbolTime: number; isValidAccessDetail: isValidAccessDetailTime }[] = [];
                 for (const symbol of props) {
                     const time1 = timestamp();
-                    const timeCheck: { name: string; time: number; }[] = symbol.name === "conforms" || symbol.name === "flow" || symbol.name === "flowRight" ? [] : undefined;
+                    const timeCheck: isValidAccessDetailTime = symbol.name === "conforms" || symbol.name === "flow" || symbol.name === "flowRight" ? [] : undefined;
                     const val = typeChecker.isValidPropertyAccessForCompletions(node.kind === SyntaxKind.ImportType ? <ImportTypeNode>node : <PropertyAccessExpression>node.parent, type, symbol, timeCheck);
                     const time2 = timestamp();
                     if (val) {

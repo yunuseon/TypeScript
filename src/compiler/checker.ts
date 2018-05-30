@@ -17454,28 +17454,40 @@ namespace ts {
             const signatures = getSignaturesOfType(getNonNullableType(propType), SignatureKind.Call);
             const timestamp3 = timestamp();
             Debug.assert(signatures.length !== 0);
-            const times: { signatureThisType: boolean; getThisTypeOfSignature: number; isTypeAssignableTo: number; }[] = timechecks ? [] : [];
+            type timeCheckDetails = { signatureThisType: number | undefined; thisType: number | undefined; getThisTypeOfSignature: number; getInstantiatedSignatureThisType: number; isTypeAssignableTo: number; };
+            const times: timeCheckDetails[] = timechecks ? [] : [];
             const result = signatures.some(sig => {
                 const time1 = timestamp();
                 const signatureThisType = getThisTypeOfSignature(sig);
                 const time2 = timestamp();
-                const value =  !signatureThisType || isTypeAssignableTo(actualThisType, getInstantiatedSignatureThisType(sig, signatureThisType, actualThisType));
+                let value :boolean;
+                let thisType: Type | undefined;
+                let time4: number | undefined;
+                if ( signatureThisType) {
+                    thisType = getInstantiatedSignatureThisType(sig, signatureThisType, actualThisType);
+                    time4 = timestamp();
+                    value = isTypeAssignableTo(actualThisType, thisType);
+                } else {
+                    value = true;
+                }
                 const time3 = timestamp();
                 if (timechecks) {
-                    const value: { signatureThisType: boolean; getThisTypeOfSignature: number; isTypeAssignableTo: number; } = {
-                        signatureThisType: !!signatureThisType,
-
+                    const value: timeCheckDetails = {
+                        signatureThisType: signatureThisType && signatureThisType.id,
+                        thisType: thisType && thisType.id,
                         getThisTypeOfSignature: time2 - time1,
-                        isTypeAssignableTo: time3 - time2
+                        getInstantiatedSignatureThisType: time4 ? time4 - time2 : 0,
+                        isTypeAssignableTo: time4 ? time3 - time4 : time3 - time2
                     };
                     times.push(value);
                 }
                 return value;
             });
             if (timechecks) {
-                timechecks.push({ name: "isValidMethodAccess::getTypeOfFuncClassEnumModule", time: timestamp2 - timestamp1 });
+                timechecks.push({ name: "isValidMethodAccess::getTypeOfPropertyOfType", time: timestamp2 - timestamp1 });
                 timechecks.push({ name: "isValidMethodAccess::getSignaturesOfType", time: timestamp3 - timestamp2 });
                 timechecks.push({ name: "isValidMethodAccess:: getThisTypeOfSignature", time: sum(times, "getThisTypeOfSignature")});
+                timechecks.push({ name: "isValidMethodAccess:: getInstantiatedSignatureThisType", time: sum(times, "getInstantiatedSignatureThisType") });
                 timechecks.push({ name: "isValidMethodAccess:: isTypeAssignableTo", time: sum(times, "isTypeAssignableTo") });
                     timechecks.push({ name: `isValidMethodAccess::${JSON.stringify(times)}`, time: 0 });
             }
