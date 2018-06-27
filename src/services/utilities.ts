@@ -439,6 +439,10 @@ namespace ts {
         return startEndOverlapsWithStartEnd(r1.pos, r1.end, start, end);
     }
 
+    export function nodeOverlapsWithStartEnd(node: Node, sourceFile: SourceFile, start: number, end: number) {
+        return startEndOverlapsWithStartEnd(node.getStart(sourceFile), node.end, start, end);
+    }
+
     export function startEndOverlapsWithStartEnd(start1: number, end1: number, start2: number, end2: number) {
         const start = Math.max(start1, start2);
         const end = Math.min(end1, end2);
@@ -648,8 +652,8 @@ namespace ts {
      * Gets the token whose text has range [start, end) and
      * position >= start and (position < end or (position === end && token is literal or keyword or identifier))
      */
-    export function getTouchingPropertyName(sourceFile: SourceFile, position: number, includeJsDocComment: boolean): Node {
-        return getTouchingToken(sourceFile, position, includeJsDocComment, n => isPropertyNameLiteral(n) || isKeyword(n.kind));
+    export function getTouchingPropertyName(sourceFile: SourceFile, position: number): Node {
+        return getTouchingToken(sourceFile, position, /*includeJsDocComment*/ true, n => isPropertyNameLiteral(n) || isKeyword(n.kind));
     }
 
     /**
@@ -661,19 +665,14 @@ namespace ts {
     }
 
     /** Returns a token if position is in [start-of-leading-trivia, end) */
-    export function getTokenAtPosition(sourceFile: SourceFile, position: number, includeJsDocComment: boolean, includeEndPosition = false): Node {
-        return getTokenAtPositionWorker(sourceFile, position, /*allowPositionInLeadingTrivia*/ true, /*includePrecedingTokenAtEndPosition*/ undefined, includeEndPosition, includeJsDocComment);
+    export function getTokenAtPosition(sourceFile: SourceFile, position: number): Node {
+        return getTokenAtPositionWorker(sourceFile, position, /*allowPositionInLeadingTrivia*/ true, /*includePrecedingTokenAtEndPosition*/ undefined, /*includeEndPosition*/ false, /*includeJsDocComment*/ true);
     }
 
     /** Get the token whose text contains the position */
     function getTokenAtPositionWorker(sourceFile: SourceFile, position: number, allowPositionInLeadingTrivia: boolean, includePrecedingTokenAtEndPosition: ((n: Node) => boolean) | undefined, includeEndPosition: boolean, includeJsDocComment: boolean): Node {
         let current: Node = sourceFile;
         outer: while (true) {
-            if (isToken(current)) {
-                // exit early
-                return current;
-            }
-
             // find the child that contains 'position'
             for (const child of current.getChildren()) {
                 if (!includeJsDocComment && isJSDocNode(child)) {
@@ -714,7 +713,7 @@ namespace ts {
     export function findTokenOnLeftOfPosition(file: SourceFile, position: number): Node | undefined {
         // Ideally, getTokenAtPosition should return a token. However, it is currently
         // broken, so we do a check to make sure the result was indeed a token.
-        const tokenAtPosition = getTokenAtPosition(file, position, /*includeJsDocComment*/ false);
+        const tokenAtPosition = getTokenAtPosition(file, position);
         if (isToken(tokenAtPosition) && position > tokenAtPosition.getStart(file) && position < tokenAtPosition.getEnd()) {
             return tokenAtPosition;
         }
@@ -857,7 +856,7 @@ namespace ts {
      * returns true if the position is in between the open and close elements of an JSX expression.
      */
     export function isInsideJsxElementOrAttribute(sourceFile: SourceFile, position: number) {
-        const token = getTokenAtPosition(sourceFile, position, /*includeJsDocComment*/ false);
+        const token = getTokenAtPosition(sourceFile, position);
 
         if (!token) {
             return false;
@@ -897,7 +896,7 @@ namespace ts {
     }
 
     export function isInTemplateString(sourceFile: SourceFile, position: number) {
-        const token = getTokenAtPosition(sourceFile, position, /*includeJsDocComment*/ false);
+        const token = getTokenAtPosition(sourceFile, position);
         return isTemplateLiteralKind(token.kind) && position > token.getStart(sourceFile);
     }
 
@@ -944,7 +943,7 @@ namespace ts {
                     token = findPrecedingToken(token.getFullStart(), sourceFile);
                     if (!token || !isIdentifier(token)) return undefined;
                     if (!remainingLessThanTokens) {
-                        return { called: token, nTypeArguments };
+                        return isDeclarationName(token) ? undefined : { called: token, nTypeArguments };
                     }
                     remainingLessThanTokens--;
                     break;
@@ -1033,18 +1032,9 @@ namespace ts {
         return !!formatting.getRangeOfEnclosingComment(sourceFile, position, /*onlyMultiLine*/ false, /*precedingToken*/ undefined, tokenAtPosition, predicate);
     }
 
-    export function hasDocComment(sourceFile: SourceFile, position: number) {
-        const token = getTokenAtPosition(sourceFile, position, /*includeJsDocComment*/ false);
-
-        // First, we have to see if this position actually landed in a comment.
-        const commentRanges = getLeadingCommentRanges(sourceFile.text, token.pos);
-
-        return forEach(commentRanges, jsDocPrefix);
-
-        function jsDocPrefix(c: CommentRange): boolean {
-            const text = sourceFile.text;
-            return text.length >= c.pos + 3 && text[c.pos] === "/" && text[c.pos + 1] === "*" && text[c.pos + 2] === "*";
-        }
+    export function hasDocComment(sourceFile: SourceFile, position: number): boolean {
+        const token = getTokenAtPosition(sourceFile, position);
+        return !!findAncestor(token, isJSDoc);
     }
 
     function nodeHasTokens(n: Node, sourceFile: SourceFileLike): boolean {
@@ -1196,6 +1186,7 @@ namespace ts {
         SyntaxKind.VoidKeyword,
         SyntaxKind.UndefinedKeyword,
         SyntaxKind.UniqueKeyword,
+        SyntaxKind.UnknownKeyword,
     ];
 
     export function isTypeKeyword(kind: SyntaxKind): boolean {
@@ -1256,18 +1247,38 @@ namespace ts {
         return createGetCanonicalFileName(hostUsesCaseSensitiveFileNames(host));
     }
 
-    export function makeImportIfNecessary(defaultImport: Identifier | undefined, namedImports: ReadonlyArray<ImportSpecifier> | undefined, moduleSpecifier: string, preferences: UserPreferences): ImportDeclaration | undefined {
-        return defaultImport || namedImports && namedImports.length ? makeImport(defaultImport, namedImports, moduleSpecifier, preferences) : undefined;
+    export function makeImportIfNecessary(defaultImport: Identifier | undefined, namedImports: ReadonlyArray<ImportSpecifier> | undefined, moduleSpecifier: string, quotePreference: QuotePreference): ImportDeclaration | undefined {
+        return defaultImport || namedImports && namedImports.length ? makeImport(defaultImport, namedImports, moduleSpecifier, quotePreference) : undefined;
     }
 
-    export function makeImport(defaultImport: Identifier | undefined, namedImports: ReadonlyArray<ImportSpecifier> | undefined, moduleSpecifier: string | Expression, preferences: UserPreferences): ImportDeclaration {
+    export function makeImport(defaultImport: Identifier | undefined, namedImports: ReadonlyArray<ImportSpecifier> | undefined, moduleSpecifier: string | Expression, quotePreference: QuotePreference): ImportDeclaration {
         return createImportDeclaration(
             /*decorators*/ undefined,
             /*modifiers*/ undefined,
             defaultImport || namedImports
                 ? createImportClause(defaultImport, namedImports && namedImports.length ? createNamedImports(namedImports) : undefined)
                 : undefined,
-            typeof moduleSpecifier === "string" ? createLiteral(moduleSpecifier, preferences.quotePreference === "single") : moduleSpecifier);
+            typeof moduleSpecifier === "string" ? makeStringLiteral(moduleSpecifier, quotePreference) : moduleSpecifier);
+    }
+
+    export function makeStringLiteral(text: string, quotePreference: QuotePreference): StringLiteral {
+        return createLiteral(text, quotePreference === QuotePreference.Single);
+    }
+
+    export const enum QuotePreference { Single, Double }
+
+    export function quotePreferenceFromString(str: StringLiteral, sourceFile: SourceFile): QuotePreference {
+        return isStringDoubleQuoted(str, sourceFile) ? QuotePreference.Double : QuotePreference.Single;
+    }
+
+    export function getQuotePreference(sourceFile: SourceFile, preferences: UserPreferences): QuotePreference {
+        if (preferences.quotePreference) {
+            return preferences.quotePreference === "single" ? QuotePreference.Single : QuotePreference.Double;
+        }
+        else {
+            const firstModuleSpecifier = sourceFile.imports && find(sourceFile.imports, isStringLiteral);
+            return firstModuleSpecifier ? quotePreferenceFromString(firstModuleSpecifier, sourceFile) : QuotePreference.Double;
+        }
     }
 
     export function symbolNameNoDefault(symbol: Symbol): string | undefined {
@@ -1343,6 +1354,38 @@ namespace ts {
         }
         some(pred: (node: Node) => boolean): boolean {
             return forEachEntry(this.map, pred) || false;
+        }
+    }
+
+    export function getParentNodeInSpan(node: Node | undefined, file: SourceFile, span: TextSpan): Node | undefined {
+        if (!node) return undefined;
+
+        while (node.parent) {
+            if (isSourceFile(node.parent) || !spanContainsNode(span, node.parent, file)) {
+                return node;
+            }
+
+            node = node.parent;
+        }
+    }
+
+    function spanContainsNode(span: TextSpan, node: Node, file: SourceFile): boolean {
+        return textSpanContainsPosition(span, node.getStart(file)) &&
+            node.getEnd() <= textSpanEnd(span);
+    }
+
+    export function findModifier(node: Node, kind: Modifier["kind"]): Modifier | undefined {
+        return node.modifiers && find(node.modifiers, m => m.kind === kind);
+    }
+
+    /* @internal */
+    export function insertImport(changes: textChanges.ChangeTracker, sourceFile: SourceFile, importDecl: Statement): void {
+        const lastImportDeclaration = findLast(sourceFile.statements, isAnyImportSyntax);
+        if (lastImportDeclaration) {
+            changes.insertNodeAfter(sourceFile, lastImportDeclaration, importDecl);
+        }
+        else {
+            changes.insertNodeAtTopOfFile(sourceFile, importDecl, /*blankLineBetween*/ true);
         }
     }
 }
@@ -1646,9 +1689,9 @@ namespace ts {
     }
 
     /* @internal */
-    export function getUniqueName(baseName: string, fileText: string): string {
+    export function getUniqueName(baseName: string, sourceFile: SourceFile): string {
         let nameText = baseName;
-        for (let i = 1; stringContains(fileText, nameText); i++) {
+        for (let i = 1; !isFileLevelUniqueName(sourceFile, nameText); i++) {
             nameText = `${baseName}_${i}`;
         }
         return nameText;
@@ -1667,7 +1710,7 @@ namespace ts {
             Debug.assert(fileName === renameFilename);
             for (const change of textChanges) {
                 const { span, newText } = change;
-                const index = newText.indexOf(name);
+                const index = indexInTextChange(newText, name);
                 if (index !== -1) {
                     lastPos = span.start + delta + index;
 
@@ -1684,5 +1727,30 @@ namespace ts {
         Debug.assert(preferLastLocation);
         Debug.assert(lastPos >= 0);
         return lastPos;
+    }
+
+    export function copyComments(sourceNode: Node, targetNode: Node, sourceFile: SourceFile, commentKind?: CommentKind, hasTrailingNewLine?: boolean) {
+        forEachLeadingCommentRange(sourceFile.text, sourceNode.pos, (pos, end, kind, htnl) => {
+            if (kind === SyntaxKind.MultiLineCommentTrivia) {
+                // Remove leading /*
+                pos += 2;
+                // Remove trailing */
+                end -= 2;
+            }
+            else {
+                // Remove leading //
+                pos += 2;
+            }
+            addSyntheticLeadingComment(targetNode, commentKind || kind, sourceFile.text.slice(pos, end), hasTrailingNewLine !== undefined ? hasTrailingNewLine : htnl);
+        });
+    }
+
+    function indexInTextChange(change: string, name: string): number {
+        if (startsWith(change, name)) return 0;
+        // Add a " " to avoid references inside words
+        let idx = change.indexOf(" " + name);
+        if (idx === -1) idx = change.indexOf("." + name);
+        if (idx === -1) idx = change.indexOf('"' + name);
+        return idx === -1 ? -1 : idx + 1;
     }
 }
