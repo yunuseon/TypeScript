@@ -1,0 +1,143 @@
+=== tests/cases/compiler/subsetTests.ts ===
+interface User {
+    name: string;
+>name : string
+
+    age: number;
+>age : number
+
+    contact: {
+>contact : { email: string; phone: string; address: { street: string; country: string; zipcode: number; }; }
+
+        email: string;
+>email : string
+
+        phone: string;
+>phone : string
+
+        address: {
+>address : { street: string; country: string; zipcode: number; }
+
+            street: string;
+>street : string
+
+            country: string;
+>country : string
+
+            zipcode: number;
+>zipcode : number
+        }
+    };
+    password: string;
+>password : string
+}
+
+type PersonalInformation = Subset<User, {
+>PersonalInformation : Subset<User, { name: string; age: number; }>
+
+    name: string;
+>name : string
+
+    age: number;
+>age : number
+
+}>; // Fine
+
+
+type WronglyTypedPersonalInformation = Subset<User, {
+>WronglyTypedPersonalInformation : Subset<User, { name: string; age: string; }>
+
+    name: string;
+>name : string
+
+    age: string; // Error: Types of property age are incompatible
+>age : string
+
+}>;
+
+type ExcessPersonalInformation = Subset<User, {
+>ExcessPersonalInformation : Subset<User, { name: string; favoriteColor: string; }>
+
+    name: string;
+>name : string
+
+    favoriteColor: string; // Error: Property favoriteColor is missing in type User
+>favoriteColor : string
+
+}>;
+
+// This also works for "deep" properties
+
+type ShippingInformation = Subset<User, {
+>ShippingInformation : Subset<User, { name: string; contact: { address: { street: string; zipcode: number; }; }; }>
+
+    name: string;
+>name : string
+
+    contact: {
+>contact : { address: { street: string; zipcode: number; }; }
+
+        address: {
+>address : { street: string; zipcode: number; }
+
+            street: string;
+>street : string
+
+            zipcode: number;
+>zipcode : number
+        }
+    }
+}>; // Fine (Omitting properties of nested properties is ok too)
+
+type WronglyTypedShippingInformation = Subset<User, {
+>WronglyTypedShippingInformation : Subset<User, { name: string; contact: { address: { street: { name: string; nr: number; }; zipcode: number; }; }; }>
+
+    name: string;
+>name : string
+
+    contact: {
+>contact : { address: { street: { name: string; nr: number; }; zipcode: number; }; }
+
+        address: {
+>address : { street: { name: string; nr: number; }; zipcode: number; }
+
+            street: {
+>street : { name: string; nr: number; }
+
+                name: string;
+>name : string
+
+                nr: number;
+>nr : number
+
+            }; // Error: Types of property street are incompatible
+            zipcode: number;
+>zipcode : number
+        }
+    }
+}>
+
+type ExcessShippingInformation = Subset<User, {
+>ExcessShippingInformation : Subset<User, { name: string; contact: { address: { street: string; zipcode: number; state: string; }; }; }>
+
+    name: string;
+>name : string
+
+    contact: {
+>contact : { address: { street: string; zipcode: number; state: string; }; }
+
+        address: {
+>address : { street: string; zipcode: number; state: string; }
+
+            street: string;
+>street : string
+
+            zipcode: number;
+>zipcode : number
+
+            state: string; // Error: Property state is missing in type User
+>state : string
+        }
+    }
+}>;
+

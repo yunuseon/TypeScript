@@ -18,8 +18,8 @@ declare function withoutBoundary<T extends UserArgs>(args?: T): T;
 >args : T | undefined
 
 const boundaryResult = withBoundary({
->boundaryResult : UserArgs
->withBoundary({  select: true,}) : UserArgs
+>boundaryResult : { select: true; }
+>withBoundary({  select: true,}) : { select: true; }
 >withBoundary : <T extends UserArgs>(args?: Subset<T, UserArgs> | undefined) => T
 >{  select: true,} : { select: true; }
 

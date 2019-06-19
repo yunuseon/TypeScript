@@ -1,0 +1,110 @@
+tests/cases/compiler/subsetTests.ts(22,47): error TS2344: Type 'User' does not satisfy the constraint '{ name: string; age: string; }'.
+  Types of property 'age' are incompatible.
+    Type 'number' is not assignable to type 'string'.
+tests/cases/compiler/subsetTests.ts(27,41): error TS2344: Type 'User' does not satisfy the constraint '{ name: string; favoriteColor: string; }'.
+  Property 'favoriteColor' is missing in type 'User' but required in type '{ name: string; favoriteColor: string; }'.
+tests/cases/compiler/subsetTests.ts(44,47): error TS2344: Type 'User' does not satisfy the constraint '{ name: string; contact: { address: { street: { name: string; nr: number; }; zipcode: number; }; }; }'.
+  Types of property 'contact' are incompatible.
+    Type '{ email: string; phone: string; address: { street: string; country: string; zipcode: number; }; }' is not assignable to type '{ address: { street: { name: string; nr: number; }; zipcode: number; }; }'.
+      Types of property 'address' are incompatible.
+        Type '{ street: string; country: string; zipcode: number; }' is not assignable to type '{ street: { name: string; nr: number; }; zipcode: number; }'.
+          Types of property 'street' are incompatible.
+            Type 'string' is not assignable to type '{ name: string; nr: number; }'.
+tests/cases/compiler/subsetTests.ts(57,41): error TS2344: Type 'User' does not satisfy the constraint '{ name: string; contact: { address: { street: string; zipcode: number; state: string; }; }; }'.
+  Types of property 'contact' are incompatible.
+    Type '{ email: string; phone: string; address: { street: string; country: string; zipcode: number; }; }' is not assignable to type '{ address: { street: string; zipcode: number; state: string; }; }'.
+      Types of property 'address' are incompatible.
+        Property 'state' is missing in type '{ street: string; country: string; zipcode: number; }' but required in type '{ street: string; zipcode: number; state: string; }'.
+
+
+==== tests/cases/compiler/subsetTests.ts (4 errors) ====
+    interface User {
+        name: string;
+        age: number;
+        contact: {
+            email: string;
+            phone: string;
+            address: {
+                street: string;
+                country: string;
+                zipcode: number;
+            }
+        };
+        password: string;
+    }
+    
+    type PersonalInformation = Subset<User, {
+        name: string;
+        age: number;
+    }>; // Fine
+    
+    
+    type WronglyTypedPersonalInformation = Subset<User, {
+                                                  ~~~~
+!!! error TS2344: Type 'User' does not satisfy the constraint '{ name: string; age: string; }'.
+!!! error TS2344:   Types of property 'age' are incompatible.
+!!! error TS2344:     Type 'number' is not assignable to type 'string'.
+        name: string;
+        age: string; // Error: Types of property age are incompatible
+    }>;
+    
+    type ExcessPersonalInformation = Subset<User, {
+                                            ~~~~
+!!! error TS2344: Type 'User' does not satisfy the constraint '{ name: string; favoriteColor: string; }'.
+!!! error TS2344:   Property 'favoriteColor' is missing in type 'User' but required in type '{ name: string; favoriteColor: string; }'.
+!!! related TS2728 tests/cases/compiler/subsetTests.ts:29:5: 'favoriteColor' is declared here.
+        name: string;
+        favoriteColor: string; // Error: Property favoriteColor is missing in type User
+    }>;
+    
+    // This also works for "deep" properties
+    
+    type ShippingInformation = Subset<User, {
+        name: string;
+        contact: {
+            address: {
+                street: string;
+                zipcode: number;
+            }
+        }
+    }>; // Fine (Omitting properties of nested properties is ok too)
+    
+    type WronglyTypedShippingInformation = Subset<User, {
+                                                  ~~~~
+!!! error TS2344: Type 'User' does not satisfy the constraint '{ name: string; contact: { address: { street: { name: string; nr: number; }; zipcode: number; }; }; }'.
+!!! error TS2344:   Types of property 'contact' are incompatible.
+!!! error TS2344:     Type '{ email: string; phone: string; address: { street: string; country: string; zipcode: number; }; }' is not assignable to type '{ address: { street: { name: string; nr: number; }; zipcode: number; }; }'.
+!!! error TS2344:       Types of property 'address' are incompatible.
+!!! error TS2344:         Type '{ street: string; country: string; zipcode: number; }' is not assignable to type '{ street: { name: string; nr: number; }; zipcode: number; }'.
+!!! error TS2344:           Types of property 'street' are incompatible.
+!!! error TS2344:             Type 'string' is not assignable to type '{ name: string; nr: number; }'.
+        name: string;
+        contact: {
+            address: {
+                street: {
+                    name: string;
+                    nr: number;
+                }; // Error: Types of property street are incompatible
+                zipcode: number;
+            }
+        }
+    }>
+    
+    type ExcessShippingInformation = Subset<User, {
+                                            ~~~~
+!!! error TS2344: Type 'User' does not satisfy the constraint '{ name: string; contact: { address: { street: string; zipcode: number; state: string; }; }; }'.
+!!! error TS2344:   Types of property 'contact' are incompatible.
+!!! error TS2344:     Type '{ email: string; phone: string; address: { street: string; country: string; zipcode: number; }; }' is not assignable to type '{ address: { street: string; zipcode: number; state: string; }; }'.
+!!! error TS2344:       Types of property 'address' are incompatible.
+!!! error TS2344:         Property 'state' is missing in type '{ street: string; country: string; zipcode: number; }' but required in type '{ street: string; zipcode: number; state: string; }'.
+!!! related TS2728 tests/cases/compiler/subsetTests.ts:63:13: 'state' is declared here.
+        name: string;
+        contact: {
+            address: {
+                street: string;
+                zipcode: number;
+                state: string; // Error: Property state is missing in type User
+            }
+        }
+    }>;
+    
